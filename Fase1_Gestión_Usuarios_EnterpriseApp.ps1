@@ -59,6 +59,8 @@
     Permiso Graph requerido: AppRoleAssignment.ReadWrite.All (tipo Application)
 #>
 
+#Requires -Version 5.1
+
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $TenantId,
@@ -69,6 +71,11 @@ param(
     [Parameter(Mandatory)] [string] $PrincipalId,
     [string] $AppRoleId = "00000000-0000-0000-0000-000000000000"
 )
+
+# Que cualquier error no controlado detenga el script y caiga en el catch
+# correspondiente. Los cmdlets con -ErrorAction explícito mantienen su propio
+# comportamiento.
+$ErrorActionPreference = "Stop"
 
 # ─────────────────────────────────────────────
 # FUNCIONES AUXILIARES
@@ -88,18 +95,29 @@ function Write-Result {
     $result = [ordered]@{
         success   = $Success
         message   = $Message
-        timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+        timestamp = ([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
         data      = $Data
     }
     Write-Output ($result | ConvertTo-Json -Depth 5 -Compress)
     exit $(if ($Success) { 0 } else { 1 })
 }
 
+function Test-IsGuid {
+    <#
+    .SYNOPSIS
+        Valida que una cadena tenga formato GUID. Permite detectar parámetros
+        mal formados antes de llamar a Graph, devolviendo un error claro.
+    #>
+    param([string] $Value)
+    [guid]::TryParse($Value, [ref]([guid]::Empty))
+}
+
 function Get-PrincipalType {
     <#
     .SYNOPSIS
-        Determina si un ObjectId corresponde a un usuario o a un grupo.
-        Devuelve "User", "Group" o lanza excepción si no se encuentra.
+        Determina si un ObjectId corresponde a un usuario, grupo o service
+        principal. Devuelve "User", "Group", "ServicePrincipal" o lanza
+        excepción si no se encuentra o el tipo no está soportado.
     #>
     param([string] $ObjectId)
 
@@ -109,11 +127,21 @@ function Get-PrincipalType {
         throw "No se encontró ningún objeto de directorio con ObjectId: $ObjectId"
     }
 
-    switch ($dirObject.ODataType) {
-        "#microsoft.graph.user"  { return "User" }
-        "#microsoft.graph.group" { return "Group" }
+    # El SDK de Microsoft.Graph expone el tipo derivado en
+    # AdditionalProperties['@odata.type']; la propiedad fuerte .ODataType
+    # suele venir vacía, por lo que no se puede confiar solo en ella.
+    $odataType = $null
+    if ($dirObject.AdditionalProperties -and $dirObject.AdditionalProperties.ContainsKey('@odata.type')) {
+        $odataType = $dirObject.AdditionalProperties['@odata.type']
+    }
+    if (-not $odataType) { $odataType = $dirObject.ODataType }
+
+    switch ($odataType) {
+        "#microsoft.graph.user"             { return "User" }
+        "#microsoft.graph.group"            { return "Group" }
+        "#microsoft.graph.servicePrincipal" { return "ServicePrincipal" }
         default {
-            throw "El ObjectId '$ObjectId' corresponde a un tipo no soportado: $($dirObject.ODataType). Solo se admiten usuarios y grupos."
+            throw "El ObjectId '$ObjectId' corresponde a un tipo no soportado: $odataType. Solo se admiten usuarios, grupos y service principals."
         }
     }
 }
@@ -136,6 +164,22 @@ function Get-ExistingAssignment {
 }
 
 # ─────────────────────────────────────────────
+# 0. VALIDAR FORMATO DE LOS PARÁMETROS
+# ─────────────────────────────────────────────
+
+foreach ($p in @(
+    @{ Name = "TenantId";           Value = $TenantId },
+    @{ Name = "ClientId";           Value = $ClientId },
+    @{ Name = "ServicePrincipalId"; Value = $ServicePrincipalId },
+    @{ Name = "PrincipalId";        Value = $PrincipalId },
+    @{ Name = "AppRoleId";          Value = $AppRoleId }
+)) {
+    if (-not (Test-IsGuid -Value $p.Value)) {
+        Write-Result -Success $false -Message "El parámetro '$($p.Name)' no tiene un formato GUID válido: '$($p.Value)'."
+    }
+}
+
+# ─────────────────────────────────────────────
 # 1. VERIFICAR, INSTALAR E IMPORTAR MÓDULOS
 # ─────────────────────────────────────────────
 
@@ -149,6 +193,17 @@ foreach ($module in $requiredModules) {
     if (-not (Get-Module -ListAvailable -Name $module)) {
         Write-Host "Módulo '$module' no encontrado. Instalando..." -ForegroundColor Yellow
         try {
+            # Endurecer la instalación para entornos no interactivos (MID Server):
+            # sin esto, un proveedor NuGet ausente o un PSGallery no confiable
+            # provocan un prompt que bloquea la ejecución indefinidamente.
+            if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+                Install-PackageProvider -Name NuGet -Scope CurrentUser -Force -ErrorAction Stop | Out-Null
+            }
+            $gallery = Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue
+            if ($gallery -and $gallery.InstallationPolicy -ne 'Trusted') {
+                Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
+            }
+
             Install-Module -Name $module -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
             Write-Host "Módulo '$module' instalado correctamente." -ForegroundColor Green
         }
