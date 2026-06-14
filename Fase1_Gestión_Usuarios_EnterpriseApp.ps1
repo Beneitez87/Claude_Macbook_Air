@@ -136,7 +136,7 @@ function Get-ExistingAssignment {
 }
 
 # ─────────────────────────────────────────────
-# 1. VERIFICAR MÓDULOS
+# 1. VERIFICAR, INSTALAR E IMPORTAR MÓDULOS
 # ─────────────────────────────────────────────
 
 $requiredModules = @(
@@ -147,7 +147,21 @@ $requiredModules = @(
 
 foreach ($module in $requiredModules) {
     if (-not (Get-Module -ListAvailable -Name $module)) {
-        Write-Result -Success $false -Message "Módulo requerido no encontrado: $module. Ejecuta: Install-Module $module -Scope CurrentUser"
+        Write-Host "Módulo '$module' no encontrado. Instalando..." -ForegroundColor Yellow
+        try {
+            Install-Module -Name $module -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+            Write-Host "Módulo '$module' instalado correctamente." -ForegroundColor Green
+        }
+        catch {
+            Write-Result -Success $false -Message "No se pudo instalar el módulo '$module': $($_.Exception.Message)"
+        }
+    }
+
+    try {
+        Import-Module -Name $module -ErrorAction Stop
+    }
+    catch {
+        Write-Result -Success $false -Message "No se pudo importar el módulo '$module': $($_.Exception.Message)"
     }
 }
 
