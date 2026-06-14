@@ -67,14 +67,14 @@
     Descripción del secreto (ej: "ServiceNow-PRD").
 
 .PARAMETER SecretExpiryMonths
-    Duración del secreto en meses (por defecto 12).
+    Duración del secreto en meses (por defecto 24, vigencia estándar).
 
 .PARAMETER GenerateCert
     Boolean: generar un certificado autofirmado, subirlo a la app y devolver
     el .cer y .pfx (base64) en la salida.
 
 .PARAMETER CertValidityYears
-    Validez del certificado en años (por defecto 2).
+    Validez del certificado en años (por defecto 2, equivalente a 24 meses).
 
 .PARAMETER CertSubject
     Subject del certificado (por defecto "CN=<DisplayName>").
@@ -96,6 +96,10 @@
 
 #Requires -Version 7.0
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '',
+    Justification = 'Conversión inevitable: el client secret (flujo client-credentials) y la contraseña aleatoria del .pfx generado deben pasarse como SecureString a las APIs correspondientes. No se persisten en claro.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
+    Justification = 'Write-Host solo se usa para mensajes de diagnóstico durante la instalación de módulos en primer arranque; el resultado de la operación se emite siempre por Write-Output en formato JSON.')]
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $TenantId,
@@ -121,10 +125,10 @@ param(
 
     [bool]   $GenerateSecret = $false,
     [string] $SecretDescription = "ServiceNow",
-    [int]    $SecretExpiryMonths = 12,
+    [int]    $SecretExpiryMonths = 24,
 
     [bool]   $GenerateCert = $false,
-    [int]    $CertValidityYears = 2,
+    [int]    $CertValidityYears = 2,   # 2 años = 24 meses (vigencia estándar)
     [string] $CertSubject,
 
     [string] $NotificationEmail,
