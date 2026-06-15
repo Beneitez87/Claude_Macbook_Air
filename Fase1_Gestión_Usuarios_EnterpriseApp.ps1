@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Fase 1 - Gestión de usuarios y grupos en Enterprise Apps (Entra ID)
     Añade o elimina la asignación de un usuario o grupo a una enterprise app.
@@ -56,11 +56,18 @@
 .NOTES
     Módulos requeridos: Microsoft.Graph.Authentication, Microsoft.Graph.Applications,
                         Microsoft.Graph.DirectoryObjects
-    Permiso Graph requerido: AppRoleAssignment.ReadWrite.All (tipo Application)
+    Permisos Graph (tipo Application) del ejecutor:
+        AppRoleAssignment.ReadWrite.All  -> crear/eliminar y leer asignaciones de app role
+        Application.Read.All             -> leer el service principal destino (paso 3)
+        Directory.Read.All               -> resolver el tipo del principal con Get-MgDirectoryObject (paso 4)
 #>
 
 #Requires -Version 5.1
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '',
+    Justification = 'Conversión inevitable: el client secret del flujo client-credentials debe pasarse como SecureString a New-Object PSCredential. No se persiste en claro.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
+    Justification = 'Write-Host solo se usa para diagnóstico durante la instalación de módulos en primer arranque; el resultado de la operación se emite siempre por Write-Output en formato JSON.')]
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $TenantId,

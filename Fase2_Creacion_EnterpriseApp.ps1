@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Fase 2 - Creación de Enterprise Apps (Entra ID)
     Crea una app registration + service principal con configuración completa:
@@ -197,7 +197,8 @@ function Resolve-ResourceAccess {
         throw "Cada bloque de apiPermissions debe incluir 'resourceAppId'."
     }
 
-    $resourceSp = Get-MgServicePrincipal -Filter "appId eq '$resourceAppId'" -ErrorAction Stop |
+    $resourceFilter = "appId eq '" + ($resourceAppId -replace "'", "''") + "'"
+    $resourceSp = Get-MgServicePrincipal -Filter $resourceFilter -ErrorAction Stop |
         Select-Object -First 1
     if (-not $resourceSp) {
         throw "No se encontró el service principal del recurso con appId '$resourceAppId'."
@@ -233,6 +234,31 @@ function Resolve-ResourceAccess {
         RequiredResourceAccess = @{ resourceAppId = $resourceAppId; resourceAccess = $resourceAccess }
         DelegatedScopes       = $resolvedScopes
         ApplicationRoles      = $resolvedRoles
+    }
+}
+
+function Invoke-WithRetry {
+    <#
+    .SYNOPSIS
+        Reintenta un bloque ante errores transitorios de replicación de Entra:
+        tras crear la app/SP, los objetos pueden tardar unos segundos en ser
+        visibles en todos los nodos de Graph, provocando 'ResourceNotFound'
+        intermitentes al asignar owners o permisos.
+    #>
+    param(
+        [Parameter(Mandatory)] [scriptblock] $Script,
+        [int] $MaxAttempts  = 5,
+        [int] $DelaySeconds = 4
+    )
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            return & $Script
+        }
+        catch {
+            $transient = $_.Exception.Message -match 'does not exist|ResourceNotFound|Request_ResourceNotFound|not found|replicat|directoryObject'
+            if ($attempt -ge $MaxAttempts -or -not $transient) { throw }
+            Start-Sleep -Seconds ($DelaySeconds * $attempt)
+        }
     }
 }
 
@@ -335,7 +361,8 @@ try {
     # 3. GUARDA DE DUPLICADOS
     # ─────────────────────────────────────────────
     if (-not $AllowDuplicateName) {
-        $dupe = Get-MgApplication -Filter "displayName eq '$DisplayName'" -ErrorAction SilentlyContinue |
+        $dupeFilter = "displayName eq '" + ($DisplayName -replace "'", "''") + "'"
+        $dupe = Get-MgApplication -Filter $dupeFilter -ErrorAction SilentlyContinue |
             Select-Object -First 1
         if ($dupe) {
             Write-Result -Success $false -Message "Ya existe una aplicación con displayName '$DisplayName' (AppId $($dupe.AppId)). Usa -AllowDuplicateName para forzar."
@@ -371,9 +398,11 @@ try {
     # ─────────────────────────────────────────────
     foreach ($ownerRef in $Owners) {
         $ownerId = Resolve-PrincipalObjectId -UserRef $ownerRef
-        New-MgApplicationOwnerByRef -ApplicationId $app.Id -BodyParameter @{
-            "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$ownerId"
-        } -ErrorAction Stop
+        Invoke-WithRetry -Script {
+            New-MgApplicationOwnerByRef -ApplicationId $app.Id -BodyParameter @{
+                "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$ownerId"
+            } -ErrorAction Stop
+        }
         $out.owners += $ownerId
     }
 
@@ -391,26 +420,32 @@ try {
         }
 
         # Declarar los permisos en la app registration
-        Update-MgApplication -ApplicationId $app.Id -RequiredResourceAccess $requiredResourceAccess -ErrorAction Stop
+        Invoke-WithRetry -Script {
+            Update-MgApplication -ApplicationId $app.Id -RequiredResourceAccess $requiredResourceAccess -ErrorAction Stop
+        }
 
         # Conceder consent
         foreach ($resolved in $resolvedBlocks) {
             # Delegados -> oauth2PermissionGrant (AllPrincipals)
             if ($resolved.DelegatedScopes.Count -gt 0) {
-                New-MgOauth2PermissionGrant -BodyParameter @{
-                    clientId    = $sp.Id
-                    consentType = "AllPrincipals"
-                    resourceId  = $resolved.ResourceSpId
-                    scope       = ($resolved.DelegatedScopes -join " ")
-                } -ErrorAction Stop | Out-Null
+                Invoke-WithRetry -Script {
+                    New-MgOauth2PermissionGrant -BodyParameter @{
+                        clientId    = $sp.Id
+                        consentType = "AllPrincipals"
+                        resourceId  = $resolved.ResourceSpId
+                        scope       = ($resolved.DelegatedScopes -join " ")
+                    } -ErrorAction Stop | Out-Null
+                }
             }
             # Aplicación -> appRoleAssignment por cada rol
             foreach ($role in $resolved.ApplicationRoles) {
-                New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -BodyParameter @{
-                    principalId = $sp.Id
-                    resourceId  = $resolved.ResourceSpId
-                    appRoleId   = $role.id
-                } -ErrorAction Stop | Out-Null
+                Invoke-WithRetry -Script {
+                    New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -BodyParameter @{
+                        principalId = $sp.Id
+                        resourceId  = $resolved.ResourceSpId
+                        appRoleId   = $role.id
+                    } -ErrorAction Stop | Out-Null
+                }
             }
 
             $out.apiPermissions += [ordered]@{
