@@ -124,6 +124,16 @@ Describe 'Fase2 :: Invoke-WithRetry' {
             Should -Throw '*RequestDenied*'
         $script:calls | Should -Be 1
     }
+    It 'trata como transitorio el SP que aún no referencia una app válida (replicación, hallado en tenant real)' {
+        $script:calls = 0
+        $r = Invoke-WithRetry -Script {
+            $script:calls++
+            if ($script:calls -lt 2) { throw "[Request_BadRequest] : The appId '5c8f7a97' of the service principal does not reference a valid application object." }
+            'ok'
+        } -MaxAttempts 4 -DelaySeconds 0
+        $r | Should -Be 'ok'
+        $script:calls | Should -Be 2
+    }
     It 'se rinde y propaga tras agotar los intentos en error transitorio' {
         $script:calls = 0
         { Invoke-WithRetry -Script { $script:calls++; throw 'ResourceNotFound' } -MaxAttempts 3 -DelaySeconds 0 } |

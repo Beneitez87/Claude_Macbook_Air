@@ -255,7 +255,7 @@ function Invoke-WithRetry {
             return & $Script
         }
         catch {
-            $transient = $_.Exception.Message -match 'does not exist|ResourceNotFound|Request_ResourceNotFound|not found|replicat|directoryObject'
+            $transient = $_.Exception.Message -match 'does not exist|does not reference a valid|ResourceNotFound|Request_ResourceNotFound|not found|replicat|directoryObject'
             if ($attempt -ge $MaxAttempts -or -not $transient) { throw }
             Start-Sleep -Seconds ($DelaySeconds * $attempt)
         }
@@ -387,10 +387,16 @@ try {
     # ─────────────────────────────────────────────
     # 5. CREAR SERVICE PRINCIPAL (ENTERPRISE APP)
     # ─────────────────────────────────────────────
-    $sp = New-MgServicePrincipal -BodyParameter @{
-        appId                    = $app.AppId
+    # La app recién creada tarda unos segundos en replicarse; crear el SP de
+    # inmediato puede fallar con 'does not reference a valid application object'.
+    # Invoke-WithRetry absorbe esa latencia.
+    $spBody = @{
+        appId                     = $app.AppId
         appRoleAssignmentRequired = $RequireAssignment
-    } -ErrorAction Stop
+    }
+    $sp = Invoke-WithRetry -Script {
+        New-MgServicePrincipal -BodyParameter $spBody -ErrorAction Stop
+    }
     $out.servicePrincipalId = $sp.Id
 
     # ─────────────────────────────────────────────
