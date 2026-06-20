@@ -17,7 +17,7 @@ de Enterprise Apps) en un único script con un selector de operación.
 
 | Requisito | Valor |
 |---|---|
-| PowerShell | **7.0+** (`#Requires -Version 7.0`) — necesario para la generación de certificado multiplataforma. Si su MID Server usa Windows PowerShell 5.1, instale PowerShell 7. |
+| PowerShell | **Windows PowerShell 5.1+ o PowerShell 7+**. Compatible de fábrica con Windows Server 2022 (PS 5.1). El certificado usa .NET CertificateRequest (.NET Framework 4.7.2+ / .NET Core). |
 | Autenticación | Client credentials (client_id + secret) de la **app ejecutora** |
 | Módulos (`Create`) | `Microsoft.Graph.Authentication`, `.Applications`, `.Users`, `.Identity.SignIns` |
 | Módulos (`Add`/`Remove`) | `Microsoft.Graph.Authentication`, `.Applications`, `.DirectoryObjects` |

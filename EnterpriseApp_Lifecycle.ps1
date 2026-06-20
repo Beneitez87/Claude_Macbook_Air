@@ -21,8 +21,9 @@
     SSO) se reintentan con backoff (Invoke-WithRetry), reconociendo las firmas de
     error transitorias observadas en pruebas reales.
 
-    La generación del certificado es MULTIPLATAFORMA (.NET CertificateRequest),
-    por lo que funciona en PowerShell 7 sobre macOS y Windows.
+    La generación del certificado usa .NET CertificateRequest (disponible en
+    .NET Framework 4.7.2+ y .NET Core), por lo que funciona en Windows PowerShell
+    5.1 (Windows Server 2022, de fábrica) y en PowerShell 7 (Windows/macOS).
 
 .PARAMETER Operation
     Operación a realizar: "Create", "Add" o "Remove".
@@ -120,7 +121,8 @@
         -ClientSecret <secret> -ServicePrincipalId <spId> -PrincipalId <userOrGroupId>
 
 .NOTES
-    Requiere PowerShell 7.0+.
+    Requiere Windows PowerShell 5.1+ o PowerShell 7+ (compatible de fábrica con
+    Windows Server 2022).
     Módulos requeridos por operación:
         Create        : Microsoft.Graph.Authentication, .Applications, .Users, .Identity.SignIns
         Add / Remove  : Microsoft.Graph.Authentication, .Applications, .DirectoryObjects
@@ -135,7 +137,7 @@
     Todos los permisos requieren consentimiento de administrador.
 #>
 
-#Requires -Version 7.0
+#Requires -Version 5.1
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '',
     Justification = 'Conversión inevitable: el client secret (flujo client-credentials) y la contraseña aleatoria del .pfx generado deben pasarse como SecureString a las APIs correspondientes. No se persisten en claro.')]
@@ -442,6 +444,16 @@ else {
       "Microsoft.Graph.DirectoryObjects")
 }
 
+# Windows PowerShell 5.1 puede no negociar TLS 1.2 por defecto, requerido por
+# PSGallery. En PowerShell 7 es inocuo.
+try {
+    [Net.ServicePointManager]::SecurityProtocol =
+        [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+}
+catch {
+    Write-Verbose "No se pudo ajustar TLS 1.2: $($_.Exception.Message)"
+}
+
 foreach ($module in $requiredModules) {
     if (-not (Get-Module -ListAvailable -Name $module)) {
         Write-Host "Módulo '$module' no encontrado. Instalando..." -ForegroundColor Yellow
@@ -627,7 +639,12 @@ try {
 
                     $cerBytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
 
-                    $pfxPassword = [System.Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24))
+                    # RandomNumberGenerator.GetBytes(int) estático es .NET Core+;
+                    # la forma de instancia funciona también en Windows PowerShell 5.1.
+                    $rngBytes = [byte[]]::new(24)
+                    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+                    try { $rng.GetBytes($rngBytes) } finally { $rng.Dispose() }
+                    $pfxPassword = [System.Convert]::ToBase64String($rngBytes)
                     $pfxSecure   = ConvertTo-SecureString -String $pfxPassword -AsPlainText -Force
                     $pfxBytes    = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $pfxSecure)
 
