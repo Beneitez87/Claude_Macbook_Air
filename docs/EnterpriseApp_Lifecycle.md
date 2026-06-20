@@ -116,6 +116,21 @@ formato **`api://{appId}`**. Un host arbitrario (`https://mi-app`) se rechaza co
 ]
 ```
 
+## SSO (operación `Create`)
+
+Según `-SsoType`, la operación `Create` configura:
+
+| `SsoType` | Qué configura |
+|---|---|
+| `saml` | **App:** `identifierUris` (Entity ID, admite el token `{appId}`) y `web.redirectUris`. **Service principal:** `preferredSingleSignOnMode = saml`, `replyUrls`, `loginUrl` (desde `-SignOnUrl`) y las **etiquetas** `WindowsAzureActiveDirectoryIntegratedApp` + `WindowsAzureActiveDirectoryCustomSingleSignOnApplication`. Además descarga el XML de metadatos de federación (en `data.sso.metadataXml`). |
+| `oidc` | **App:** `web.redirectUris` + emisión de id_token (`ImplicitGrantSettings.EnableIdTokenIssuance`). Devuelve la `authority` del tenant. |
+| `none` | No configura SSO (por defecto). |
+
+> **Las etiquetas son imprescindibles para SAML.** Sin ellas, la configuración
+> existe en el backend pero el portal (*Enterprise Applications → Single sign-on*)
+> **no muestra** la hoja de SSO. El script las fija automáticamente; se descubrió
+> en pruebas reales sobre el tenant.
+
 ## Robustez frente a la replicación de Entra
 
 Tras crear app/SP, los objetos tardan unos segundos en replicarse en todos los
@@ -186,11 +201,9 @@ privilegios. Trate la app ejecutora en consecuencia:
 
 ## Limitaciones conocidas (no bloqueantes)
 
-- **SAML**: se fija `PreferredSingleSignOnMode`, Entity ID, Reply URL, Sign-on URL y
-  las **etiquetas** que hacen visible la hoja de SSO en el portal
-  (`WindowsAzureActiveDirectoryIntegratedApp` + `…CustomSingleSignOnApplication`).
-  Un SSO SAML plenamente funcional puede requerir además el certificado de **firma**
-  SAML y el mapeo de claims (paso posterior según el caso).
+- **SAML — firma y claims**: el SSO SAML queda visible y operativo (ver sección
+  *SSO*), pero un SAML "de catálogo" puede requerir además el certificado de
+  **firma** SAML y el **mapeo de claims** (NameID/atributos), que hoy no configura.
 - **Bloque de permisos vacío**: un bloque con `resourceAppId` pero sin permisos
   genera un `requiredResourceAccess` vacío que Graph podría rechazar.
 
