@@ -186,8 +186,10 @@ privilegios. Trate la app ejecutora en consecuencia:
 
 ## Limitaciones conocidas (no bloqueantes)
 
-- **SAML**: se fija `PreferredSingleSignOnMode`, Entity ID, Reply URL y Sign-on URL.
-  Un SSO SAML plenamente funcional suele requerir además el certificado de **firma**
+- **SAML**: se fija `PreferredSingleSignOnMode`, Entity ID, Reply URL, Sign-on URL y
+  las **etiquetas** que hacen visible la hoja de SSO en el portal
+  (`WindowsAzureActiveDirectoryIntegratedApp` + `…CustomSingleSignOnApplication`).
+  Un SSO SAML plenamente funcional puede requerir además el certificado de **firma**
   SAML y el mapeo de claims (paso posterior según el caso).
 - **Bloque de permisos vacío**: un bloque con `resourceAppId` pero sin permisos
   genera un `requiredResourceAccess` vacío que Graph podría rechazar.

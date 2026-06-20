@@ -684,6 +684,12 @@ try {
                             ServicePrincipalId        = $sp.Id
                             PreferredSingleSignOnMode = "saml"
                             ReplyUrls                 = $ReplyUrls
+                            # Sin estas etiquetas el portal NO expone la hoja de SSO
+                            # SAML en Enterprise Applications, aunque la config exista.
+                            Tags                      = @(
+                                'WindowsAzureActiveDirectoryIntegratedApp',
+                                'WindowsAzureActiveDirectoryCustomSingleSignOnApplication'
+                            )
                         }
                         if ($SignOnUrl) { $spSamlParams.LoginUrl = $SignOnUrl }
                         Invoke-WithRetry -Script {
