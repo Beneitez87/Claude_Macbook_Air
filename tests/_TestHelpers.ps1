@@ -1,16 +1,16 @@
 # ──────────────────────────────────────────────────────────────────────────
-# Helpers compartidos por las suites de test de Fase 1 y Fase 2.
+# Helpers compartidos por las suites de test del script unificado
+# EnterpriseApp_Lifecycle.ps1.
 #
-# Los scripts de producción son "scripts con param()" que, al ejecutarse,
-# se conectan a Microsoft Graph. Para poder probar su LÓGICA INTERNA sin
-# tocar el tenant, extraemos el texto fuente de sus funciones mediante el
-# AST y lo cargamos aislado en el scope de test. Las llamadas a cmdlets de
-# Graph se sustituyen por mocks de Pester.
+# El script de producción es un "script con param()" que, al ejecutarse, se
+# conecta a Microsoft Graph. Para probar su LÓGICA INTERNA sin tocar el tenant,
+# extraemos el texto fuente de sus funciones mediante el AST y lo cargamos
+# aislado en el scope de test. Las llamadas a cmdlets de Graph se sustituyen
+# por mocks de Pester.
 # ──────────────────────────────────────────────────────────────────────────
 
-$RepoRoot  = Split-Path -Parent $PSScriptRoot
-$Fase1Path = Join-Path $RepoRoot 'Fase1_Gestión_Usuarios_EnterpriseApp.ps1'
-$Fase2Path = Join-Path $RepoRoot 'Fase2_Creacion_EnterpriseApp.ps1'
+$RepoRoot   = Split-Path -Parent $PSScriptRoot
+$ScriptPath = Join-Path $RepoRoot 'EnterpriseApp_Lifecycle.ps1'
 
 # GUID de relleno válido para los tests que solo necesitan superar el
 # chequeo de formato.
@@ -54,7 +54,6 @@ function Invoke-RealScript {
     $code   = $LASTEXITCODE
     $json   = $null
     if ($stdout) {
-        # El script emite una única línea JSON por Write-Output.
         $line = ($stdout | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
         if ($line) { $json = $line | ConvertFrom-Json }
     }

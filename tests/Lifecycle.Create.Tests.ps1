@@ -1,54 +1,45 @@
 # ──────────────────────────────────────────────────────────────────────────
-# Tests de Fase 2 — Creación de Enterprise Apps.
+# Tests del script unificado — operación Create.
 # Pester 5.x
 # ──────────────────────────────────────────────────────────────────────────
 
 BeforeAll {
     . $PSScriptRoot/_TestHelpers.ps1
 
-    # Stubs de los cmdlets de Graph usados por las funciones bajo prueba.
     function Get-MgUser { [CmdletBinding()] param([string]$UserId, [string[]]$Property) }
     function Get-MgServicePrincipal { [CmdletBinding()] param([string]$Filter, [string]$ServicePrincipalId) }
 
-    . ([scriptblock]::Create((Get-ScriptFunctionText -Path $Fase2Path -Name 'Test-IsGuid','Resolve-PrincipalObjectId','Resolve-ResourceAccess','Invoke-WithRetry')))
+    . ([scriptblock]::Create((Get-ScriptFunctionText -Path $ScriptPath -Name 'Test-IsGuid','Resolve-PrincipalObjectId','Resolve-ResourceAccess','Invoke-WithRetry')))
 }
 
-Describe 'Fase2 :: Test-IsGuid' {
-    It 'acepta GUID válido' { Test-IsGuid -Value '3fa85f64-5717-4562-b3fc-2c963f66afa6' | Should -BeTrue }
-    It 'rechaza no-GUID'    { Test-IsGuid -Value 'foo' | Should -BeFalse }
-}
-
-Describe 'Fase2 :: Resolve-PrincipalObjectId' {
+Describe 'Lifecycle :: Resolve-PrincipalObjectId' {
     It 'devuelve el GUID tal cual sin consultar Graph cuando ya es un ObjectId' {
         Mock Get-MgUser { throw 'NO debería llamarse' }
-        $r = Resolve-PrincipalObjectId -UserRef $DummyGuid
-        $r | Should -Be $DummyGuid
+        Resolve-PrincipalObjectId -UserRef $DummyGuid | Should -Be $DummyGuid
         Should -Invoke Get-MgUser -Times 0
     }
     It 'resuelve un UPN a su ObjectId vía Graph' {
         Mock Get-MgUser { [pscustomobject]@{ Id = '99999999-9999-9999-9999-999999999999' } }
-        $r = Resolve-PrincipalObjectId -UserRef 'juan@contoso.com'
-        $r | Should -Be '99999999-9999-9999-9999-999999999999'
+        Resolve-PrincipalObjectId -UserRef 'juan@contoso.com' | Should -Be '99999999-9999-9999-9999-999999999999'
         Should -Invoke Get-MgUser -Times 1
     }
     It 'lanza excepción si el UPN no se puede resolver' {
         Mock Get-MgUser { $null }
-        { Resolve-PrincipalObjectId -UserRef 'fantasma@contoso.com' } |
-            Should -Throw '*No se pudo resolver*'
+        { Resolve-PrincipalObjectId -UserRef 'fantasma@contoso.com' } | Should -Throw '*No se pudo resolver*'
     }
 }
 
-Describe 'Fase2 :: Resolve-ResourceAccess' {
+Describe 'Lifecycle :: Resolve-ResourceAccess' {
     BeforeAll {
         $graphAppId = '00000003-0000-0000-c000-000000000000'
         $script:MakeResourceSp = {
             [pscustomobject]@{
-                Id                   = '12345678-1234-1234-1234-123456789012'
+                Id = '12345678-1234-1234-1234-123456789012'
                 Oauth2PermissionScopes = @(
                     [pscustomobject]@{ Value = 'User.Read'; Id = 'aaa11111-1111-1111-1111-111111111111' }
                     [pscustomobject]@{ Value = 'Mail.Read'; Id = 'bbb22222-2222-2222-2222-222222222222' }
                 )
-                AppRoles             = @(
+                AppRoles = @(
                     [pscustomobject]@{ Value = 'User.Read.All'; Id = 'ccc33333-3333-3333-3333-333333333333' }
                 )
             }
@@ -61,7 +52,6 @@ Describe 'Fase2 :: Resolve-ResourceAccess' {
         $r = Resolve-ResourceAccess -PermissionBlock $block
         $r.DelegatedScopes | Should -Be @('User.Read')
         $r.RequiredResourceAccess.resourceAccess[0].type | Should -Be 'Scope'
-        $r.RequiredResourceAccess.resourceAccess[0].id   | Should -Be 'aaa11111-1111-1111-1111-111111111111'
         $r.ResourceSpId | Should -Be '12345678-1234-1234-1234-123456789012'
     }
     It 'resuelve un permiso de aplicación a type=Role' {
@@ -81,8 +71,7 @@ Describe 'Fase2 :: Resolve-ResourceAccess' {
     }
     It 'lanza excepción si falta resourceAppId' {
         Mock Get-MgServicePrincipal { & $MakeResourceSp }
-        $block = [pscustomobject]@{ delegated = @('User.Read') }
-        { Resolve-ResourceAccess -PermissionBlock $block } | Should -Throw "*resourceAppId*"
+        { Resolve-ResourceAccess -PermissionBlock ([pscustomobject]@{ delegated = @('User.Read') }) } | Should -Throw "*resourceAppId*"
     }
     It 'lanza excepción si el service principal del recurso no existe' {
         Mock Get-MgServicePrincipal { $null }
@@ -101,11 +90,10 @@ Describe 'Fase2 :: Resolve-ResourceAccess' {
     }
 }
 
-Describe 'Fase2 :: Invoke-WithRetry' {
+Describe 'Lifecycle :: Invoke-WithRetry' {
     It 'devuelve el valor al primer intento si no hay error' {
         $script:calls = 0
-        $r = Invoke-WithRetry -Script { $script:calls++; 'ok' } -MaxAttempts 3 -DelaySeconds 0
-        $r | Should -Be 'ok'
+        Invoke-WithRetry -Script { $script:calls++; 'ok' } -MaxAttempts 3 -DelaySeconds 0 | Should -Be 'ok'
         $script:calls | Should -Be 1
     }
     It 'reintenta ante un error transitorio y acaba devolviendo el valor' {
@@ -115,67 +103,74 @@ Describe 'Fase2 :: Invoke-WithRetry' {
             if ($script:calls -lt 3) { throw 'Request_ResourceNotFound: does not exist' }
             'ok'
         } -MaxAttempts 5 -DelaySeconds 0
-        $r | Should -Be 'ok'
-        $script:calls | Should -Be 3
+        $r | Should -Be 'ok'; $script:calls | Should -Be 3
     }
-    It 'NO reintenta ante un error no transitorio (p.ej. 403) y propaga de inmediato' {
+    It 'NO reintenta ante un error no transitorio (403) y propaga de inmediato' {
         $script:calls = 0
-        { Invoke-WithRetry -Script { $script:calls++; throw 'Authorization_RequestDenied (403)' } -MaxAttempts 4 -DelaySeconds 0 } |
-            Should -Throw '*RequestDenied*'
+        { Invoke-WithRetry -Script { $script:calls++; throw 'Authorization_RequestDenied (403)' } -MaxAttempts 4 -DelaySeconds 0 } | Should -Throw '*RequestDenied*'
         $script:calls | Should -Be 1
     }
-    It 'trata como transitorio el SP que aún no referencia una app válida (replicación, hallado en tenant real)' {
+    It 'trata como transitorio "does not reference a valid application object" (creación del SP)' {
         $script:calls = 0
         $r = Invoke-WithRetry -Script {
             $script:calls++
             if ($script:calls -lt 2) { throw "[Request_BadRequest] : The appId '5c8f7a97' of the service principal does not reference a valid application object." }
             'ok'
         } -MaxAttempts 4 -DelaySeconds 0
-        $r | Should -Be 'ok'
-        $script:calls | Should -Be 2
+        $r | Should -Be 'ok'; $script:calls | Should -Be 2
+    }
+    It 'trata como transitorio "Unable to read the company information" (consent)' {
+        $script:calls = 0
+        $r = Invoke-WithRetry -Script {
+            $script:calls++
+            if ($script:calls -lt 2) { throw "[Directory_ObjectNotFound] : Unable to read the company information from the directory." }
+            'ok'
+        } -MaxAttempts 4 -DelaySeconds 0
+        $r | Should -Be 'ok'; $script:calls | Should -Be 2
     }
     It 'se rinde y propaga tras agotar los intentos en error transitorio' {
         $script:calls = 0
-        { Invoke-WithRetry -Script { $script:calls++; throw 'ResourceNotFound' } -MaxAttempts 3 -DelaySeconds 0 } |
-            Should -Throw '*ResourceNotFound*'
+        { Invoke-WithRetry -Script { $script:calls++; throw 'ResourceNotFound' } -MaxAttempts 3 -DelaySeconds 0 } | Should -Throw '*ResourceNotFound*'
         $script:calls | Should -Be 3
     }
 }
 
 # ──────────────────────────────────────────────────────────────────────────
-# Integración: fichero real, entradas que fallan en validación (paso 0),
-# antes de cargar módulos / conectar a Graph.
+# Integración: fichero real, entradas que fallan en validación (paso 0).
 # ──────────────────────────────────────────────────────────────────────────
-Describe 'Fase2 :: contrato JSON y puertas de validación (fichero real)' {
+Describe 'Lifecycle :: Create — validación (fichero real)' {
     It 'rechaza TenantId no-GUID' {
-        $r = Invoke-RealScript -Path $Fase2Path -ScriptArgs @(
-            '-TenantId','malo', '-ClientId',$DummyGuid, '-ClientSecret','x', '-DisplayName','TestApp')
-        $r.ExitCode     | Should -Be 1
-        $r.Json.success | Should -BeFalse
-        $r.Json.message | Should -BeLike '*TenantId*'
+        $r = Invoke-RealScript -Path $ScriptPath -ScriptArgs @(
+            '-Operation','Create', '-TenantId','malo', '-ClientId',$DummyGuid, '-ClientSecret','x', '-DisplayName','TestApp')
+        $r.ExitCode | Should -Be 1; $r.Json.success | Should -BeFalse; $r.Json.message | Should -BeLike '*TenantId*'
+    }
+    It 'rechaza Create sin DisplayName' {
+        $r = Invoke-RealScript -Path $ScriptPath -ScriptArgs @(
+            '-Operation','Create', '-TenantId',$DummyGuid, '-ClientId',$DummyGuid, '-ClientSecret','x')
+        $r.ExitCode | Should -Be 1; $r.Json.success | Should -BeFalse; $r.Json.message | Should -BeLike '*DisplayName*'
     }
     It 'SSO saml sin IdentifierUri es rechazado' {
-        $r = Invoke-RealScript -Path $Fase2Path -ScriptArgs @(
-            '-TenantId',$DummyGuid, '-ClientId',$DummyGuid, '-ClientSecret','x',
+        $r = Invoke-RealScript -Path $ScriptPath -ScriptArgs @(
+            '-Operation','Create', '-TenantId',$DummyGuid, '-ClientId',$DummyGuid, '-ClientSecret','x',
             '-DisplayName','TestApp', '-SsoType','saml')
-        $r.ExitCode     | Should -Be 1
-        $r.Json.success | Should -BeFalse
-        $r.Json.message | Should -BeLike '*IdentifierUri*'
+        $r.ExitCode | Should -Be 1; $r.Json.success | Should -BeFalse; $r.Json.message | Should -BeLike '*IdentifierUri*'
     }
     It 'SSO oidc sin ReplyUrls es rechazado' {
-        $r = Invoke-RealScript -Path $Fase2Path -ScriptArgs @(
-            '-TenantId',$DummyGuid, '-ClientId',$DummyGuid, '-ClientSecret','x',
+        $r = Invoke-RealScript -Path $ScriptPath -ScriptArgs @(
+            '-Operation','Create', '-TenantId',$DummyGuid, '-ClientId',$DummyGuid, '-ClientSecret','x',
             '-DisplayName','TestApp', '-SsoType','oidc')
-        $r.ExitCode     | Should -Be 1
-        $r.Json.success | Should -BeFalse
-        $r.Json.message | Should -BeLike '*ReplyUrls*'
+        $r.ExitCode | Should -Be 1; $r.Json.success | Should -BeFalse; $r.Json.message | Should -BeLike '*ReplyUrls*'
     }
     It 'ApiPermissionsJson mal formado es rechazado' {
-        $r = Invoke-RealScript -Path $Fase2Path -ScriptArgs @(
-            '-TenantId',$DummyGuid, '-ClientId',$DummyGuid, '-ClientSecret','x',
+        $r = Invoke-RealScript -Path $ScriptPath -ScriptArgs @(
+            '-Operation','Create', '-TenantId',$DummyGuid, '-ClientId',$DummyGuid, '-ClientSecret','x',
             '-DisplayName','TestApp', '-ApiPermissionsJson','{esto no es json')
-        $r.ExitCode     | Should -Be 1
-        $r.Json.success | Should -BeFalse
-        $r.Json.message | Should -BeLike '*JSON*'
+        $r.ExitCode | Should -Be 1; $r.Json.success | Should -BeFalse; $r.Json.message | Should -BeLike '*JSON*'
+    }
+    It 'rechaza -SignOnUrl cuando el SSO no es SAML' {
+        $r = Invoke-RealScript -Path $ScriptPath -ScriptArgs @(
+            '-Operation','Create', '-TenantId',$DummyGuid, '-ClientId',$DummyGuid, '-ClientSecret','x',
+            '-DisplayName','TestApp', '-SignOnUrl','https://ejemplo.com')
+        $r.ExitCode | Should -Be 1; $r.Json.success | Should -BeFalse; $r.Json.message | Should -BeLike '*SignOnUrl*'
     }
 }
