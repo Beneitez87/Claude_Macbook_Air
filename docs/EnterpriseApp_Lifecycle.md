@@ -24,7 +24,9 @@ de Enterprise Apps) en un único script con un selector de operación.
 
 > El script auto-instala los módulos que falten (Scope `CurrentUser`; NuGet y
 > PSGallery endurecidos para entornos no interactivos) y solo carga los de la
-> operación solicitada.
+> operación solicitada. En producción, conviene aprovisionar el servidor una vez
+> por adelantado con [`Install-GraphPrerequisites.ps1`](../Install-GraphPrerequisites.ps1)
+> (instala los 5 módulos en Scope AllUsers + TLS 1.2 + NuGet).
 
 ## Permisos API de la Enterprise App ejecutora
 

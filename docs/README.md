@@ -46,6 +46,32 @@ Todos de **tipo Aplicación** y con **consentimiento de administrador**.
 - **Sin secretos en el repositorio:** las credenciales viven en el almacén de
   ServiceNow / Key Vault.
 
+## Aprovisionamiento del servidor (Windows Server 2022+)
+
+[`Install-GraphPrerequisites.ps1`](../Install-GraphPrerequisites.ps1) deja un
+servidor listo para ejecutar el ciclo de vida: fuerza TLS 1.2, asegura el
+proveedor NuGet, confía en PSGallery, instala los 5 módulos de Microsoft Graph y
+verifica que importan. Idempotente; mismo contrato JSON y exit 0/1.
+
+```powershell
+# Una vez, en el servidor, como administrador
+.\Install-GraphPrerequisites.ps1                 # Scope AllUsers por defecto
+
+# Health-check posterior (sin instalar nada)
+.\Install-GraphPrerequisites.ps1 -CheckOnly
+```
+
+| Parámetro | Defecto | Descripción |
+|---|---|---|
+| `Scope` | `AllUsers` | `AllUsers` (requiere admin) o `CurrentUser` |
+| `ModuleVersion` | última | Versión exacta de los módulos a fijar (reproducibilidad) |
+| `CheckOnly` | — | Solo verifica, no instala |
+
+> Requiere salida HTTPS a `https://www.powershellgallery.com`. Sin internet,
+> use un **repositorio interno** o `Save-Module` offline. El script de ciclo de
+> vida también autoinstala lo que falte, pero conviene aprovisionar una vez por
+> adelantado en producción.
+
 ## Pruebas
 
 Suite de regresión Pester en [`tests/`](../tests). Ejecutar antes de cualquier
